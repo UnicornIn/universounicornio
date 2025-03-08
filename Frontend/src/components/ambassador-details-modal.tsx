@@ -1,5 +1,3 @@
-"use client"
-
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog"
 import { Card, CardContent } from "./ui/card"
 import { Badge } from "./ui/badge"
@@ -12,7 +10,7 @@ interface Sale {
 }
 
 interface Ambassador {
-  id: number
+  id: string // Cambié de `number` a `string`
   name: string
   email: string
   phone: string
@@ -75,4 +73,3 @@ export function AmbassadorDetailsModal({ isOpen, onClose, ambassador }: Ambassad
     </Dialog>
   )
 }
-

@@ -41,18 +41,19 @@ BUSINESS_CREDENTIALS = {
         "public_key": os.getenv("GREEN_ENERGY_PUBLIC_KEY", "").strip(),
         "domain": "https://rizosfelicesmx.unicornio.tech/"
     },
-    "67b612f312f5bcc5b8892540": {  # Café Bogotá
-        "access_token": os.getenv("CAFE_BOGOTA_ACCESS_TOKEN", "").strip(),
-        "public_key": os.getenv("CAFE_BOGOTA_PUBLIC_KEY", "").strip(),
+    "67cb61058d171ae47134abe5": {  # Rizos Felices México
+        "access_token": os.getenv("RIZOS_FELICES_MEXICO_ACCESS_TOKEN", "").strip(),
+        "public_key": os.getenv("RIZOS_FELICES_MEXICO_PUBLIC_KEY", "").strip(),
+        "domain": "https://rizosfelicesmx.unicornio.tech/"
+    },
+    "67cb603a8d171ae47134abe4": {  # Rizos Felices Pachuca
+        "access_token": os.getenv("RIZOS_FELICES_PACHUCA_ACCESS_TOKEN", "").strip(),
+        "public_key": os.getenv("RIZOS_FELICES_PACHUCA_PUBLIC_KEY", "").strip(),
         "domain": "https://rizosfelicesmx.unicornio.tech/"
     }
 }
 import os
 
-print("🔹 GREEN_ENERGY_ACCESS_TOKEN:", os.getenv("GREEN_ENERGY_ACCESS_TOKEN"))
-print("🔹 CAFE_BOGOTA_ACCESS_TOKEN:", os.getenv("CAFE_BOGOTA_ACCESS_TOKEN"))
-
-# Verificar que cada negocio tenga un ACCESS_TOKEN válido
 for business_id, credentials in BUSINESS_CREDENTIALS.items():
     if not credentials["access_token"]:
         print(f"❌ ERROR: ACCESS_TOKEN de {business_id} no está definido en el .env")
@@ -203,13 +204,16 @@ async def crear_embajador(
     if current_user["rol"] != "Distribuidor":
         raise HTTPException(status_code=403, detail="No autorizado para crear embajadores")
 
-    # Buscar el ObjectId del distribuidor autenticado
-    distribuidor = await collection_distribuidor.find_one({})
-    print(distribuidor)
+    # Buscar el distribuidor autenticado en la base de datos
+    distribuidor = await collection_distribuidor.find_one({"correo_electronico": current_user["email"]})
     if not distribuidor:
         raise HTTPException(status_code=404, detail="Distribuidor no encontrado")
     
-    distribuidor_id = distribuidor["_id"]  # Obtener el ObjectId
+    distribuidor_id = distribuidor["_id"]  # ObjectId del distribuidor
+    negocio_id = distribuidor.get("negocio_id")  # Obtener el negocio_id del distribuidor
+
+    if not negocio_id:
+        raise HTTPException(status_code=400, detail="El distribuidor no tiene un negocio asociado")
 
     # Verificar si el embajador ya existe por correo electrónico
     existing_user = await collection.find_one({"email": embajador.email})
@@ -219,7 +223,7 @@ async def crear_embajador(
     # Encriptar la contraseña antes de guardarla
     hashed_password = pwd_context.hash(embajador.password)
 
-    # Crear el nuevo embajador con el ObjectId del distribuidor
+    # Crear el nuevo embajador con el negocio_id y distribuidor_id
     new_embajador = {
         "email": embajador.email,
         "hashed_password": hashed_password,
@@ -227,8 +231,10 @@ async def crear_embajador(
         "whatsapp_number": embajador.whatsapp_number,
         "pais": embajador.pais,
         "rol": "Embajador",  # Rol asignado automáticamente
-        "distribuidor_id": distribuidor_id  # Guardar el ObjectId del distribuidor
+        "distribuidor_id": distribuidor_id,  # Guardar el ObjectId del distribuidor
+        "negocio_id": negocio_id  # Asignar automáticamente el negocio_id del distribuidor
     }
+
     # Insertar el embajador en la base de datos
     result = await collection.insert_one(new_embajador)
 
@@ -236,9 +242,9 @@ async def crear_embajador(
     return {
         "mensaje": "Embajador creado exitosamente",
         "id": str(result.inserted_id),
-        "distribuidor_id": str(distribuidor_id)  # Devolver el ID del distribuidor
+        "distribuidor_id": str(distribuidor_id),
+        "negocio_id": str(negocio_id)  # Devolver el negocio_id asignado
     }
- 
     
 # ENDPOINT PARA LOS DATOS DEL EMBAJADOR AUTENTICADO
 @app.get("/ambassadors", response_model=UserProfile)
@@ -266,17 +272,22 @@ async def get_user_profile(current_user: dict = Depends(get_current_user)):
 
 # ENDPOINT PARA OBTENER LOS CLIENTES ASOCIADOS A UN EMBAJADOR
 @app.get("/clients", response_model=List[ClientData])
-async def get_clients(current_user: str = Depends(get_current_user)):
+async def get_clients(current_user: dict = Depends(get_current_user)):
     """
     Obtiene los clientes asociados al embajador autenticado.
     """
+    # Obtener el email del embajador autenticado
+    email = current_user.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Usuario no autenticado")
+    
     # Verificar si el embajador existe
-    ambassador = await collection.find_one({"email": current_user})
+    ambassador = await collection.find_one({"email": email})
     if not ambassador:
         raise HTTPException(status_code=404, detail="Embajador no encontrado")
 
     # Obtener todos los clientes asociados al email del embajador
-    clients_cursor = collection_client.find({"ref": current_user})
+    clients_cursor = collection_client.find({"ref": email})
     clients = await clients_cursor.to_list(length=100)
 
     if not clients:
@@ -293,6 +304,7 @@ async def get_clients(current_user: str = Depends(get_current_user)):
         client_list.append(client_data)
 
     return client_list
+
 
 # ENDPOINT PARA CREAR UN CLIENTE ASOSIADO A UN EMBAJADOR
 @app.post("/clients", response_model=ClientCreate)
@@ -327,75 +339,99 @@ async def create_client(client_data: ClientCreate, current_user: str = Depends(g
     # Devolver los datos del cliente guardado
     return {**client_data.dict(), "id": str(result.inserted_id)}
 
+
 # ENDPOINT PARA CREAR UN PEDIDO Y LA PREFERENCIA CON MERCADO PAGO
 @app.post("/create-preference")
 async def create_preference(request: PreferenceRequest):
     try:
-        print("🔹 Datos recibidos:", request.dict())
+        print("📥 Datos recibidos:", request.dict())
 
-        # Buscar las credenciales del negocio (simulado)
-        negocio_id = "67b4ec6810a08e4b0f7c6dd8"
-        if negocio_id not in BUSINESS_CREDENTIALS:
-            raise HTTPException(status_code=400, detail="Negocio sin credenciales de Mercado Pago")
+        # 1. Buscar al embajador en la base de datos por su correo (ref)
+        embajador = await collection.find_one({"email": request.ref})
+        if not embajador:
+            print("❌ Embajador no encontrado")
+            raise HTTPException(status_code=400, detail="Embajador no encontrado")
+        print("✅ Embajador encontrado:", embajador)
 
-        credenciales = BUSINESS_CREDENTIALS[negocio_id]
-        access_token = credenciales["access_token"].strip()
+        # 2. Obtener el negocio_id del embajador
+        negocio_id = embajador.get("negocio_id")
+        if not negocio_id:
+            print("❌ Embajador no tiene un negocio asociado")
+            raise HTTPException(status_code=400, detail="Embajador no tiene un negocio asociado")
+        print("✅ Negocio ID del embajador:", negocio_id)
 
-        print(f"✅ Credenciales encontradas para negocio {negocio_id}")
+        # 3. Buscar el negocio en collection_bussiness
+        negocio = await collection_bussiness.find_one({"_id": ObjectId(negocio_id)})
+        if not negocio:
+            print("❌ Negocio no encontrado")
+            raise HTTPException(status_code=400, detail="Negocio no encontrado")
+        print("✅ Negocio encontrado:", negocio)
 
-        # **Validación del access_token antes de usarlo**
-        if not access_token:
-            raise HTTPException(status_code=500, detail="El access_token de Mercado Pago es inválido")
+        # 4. Verificar si el negocio está en BUSINESS_CREDENTIALS
+        negocio_id_str = str(negocio["_id"])  # Convertir a string para buscar en BUSINESS_CREDENTIALS
+        if negocio_id_str not in BUSINESS_CREDENTIALS:
+            print("❌ Negocio no registrado en BUSINESS_CREDENTIALS")
+            raise HTTPException(status_code=400, detail="Negocio no registrado en BUSINESS_CREDENTIALS")
+        print("✅ Negocio registrado en BUSINESS_CREDENTIALS")
 
-        # **Validar el access_token con Mercado Pago**
-        headers = {"Authorization": f"Bearer {access_token}"}
-        user_response = requests.get("https://api.mercadopago.com/users/me", headers=headers)
+        # 5. Obtener credenciales del negocio
+        credenciales = BUSINESS_CREDENTIALS[negocio_id_str]
+        sdk = mercadopago.SDK(credenciales["access_token"])
+        print("✅ Credenciales del negocio obtenidas")
 
-        if user_response.status_code != 200:
-            print("❌ Error: Access Token inválido", user_response.status_code, user_response.text)
-            raise HTTPException(status_code=400, detail="El access_token proporcionado no es válido")
-
-        # **Crear el SDK con el access_token**
-        sdk = mercadopago.SDK(access_token)
-
-        # **Calcular el total del pedido**
+        # 6. Calcular el total del pedido
         total = sum(item.unit_price * item.quantity for item in request.items)
+        print("✅ Total del pedido calculado:", total)
 
-        # **Simulación de guardado del pedido en BD**
-        pedido_id = "67c7ce40a0a56ed0d0be05ee"  # ID simulado
+        # 7. Guardar el pedido en MongoDB
+        pedido_data = PedidoMongo(
+            cedula=request.cedula,
+            nombre=request.nombre,
+            apellidos=request.apellidos,
+            pais_region=request.pais_region,
+            direccion_calle=request.direccion_calle,
+            numero_casa=request.numero_casa,
+            estado_municipio=request.estado_municipio,
+            localidad_ciudad=request.localidad_ciudad,
+            telefono=request.telefono,
+            correo_electronico=request.correo_electronico,
+            ref=request.ref,
+            productos=request.items,
+            total=total,
+        )
 
-        print(f"✅ Pedido simulado guardado con ID: {pedido_id}")
+        result = await collection_pedidos.insert_one(pedido_data.dict())
+        pedido_id = str(result.inserted_id)
+        print("✅ Pedido guardado en MongoDB con ID:", pedido_id)
 
-        # **Crear la preferencia de pago en Mercado Pago**
+        # 8. Crear la preferencia de pago en Mercado Pago
         preference_data = {
             "items": [{"title": item.title, "quantity": item.quantity, "unit_price": item.unit_price} for item in request.items],
-            "external_reference": pedido_id,
+            "external_reference": pedido_id,  # ID del pedido en MongoDB
             "back_urls": {
-                # ARREGLAR PARA BACK URL QUITAR CATALOG PARA QUE NO LO REDIRIGA AL LOGIN DE LA PAGINA BASE
-                "success": f"{credenciales['domain']}/catalog?ref={request.ref}",
-                "failure": f"{credenciales['domain']}/catalog?ref={request.ref}",
-                "pending": f"{credenciales['domain']}/catalog?ref={request.ref}",
+                "success": f"{credenciales['domain']}?ref={request.ref}",
+                "failure": f"{credenciales['domain']}?ref={request.ref}",
+                "pending": f"{credenciales['domain']}?ref={request.ref}"
             },
             "auto_return": "approved",
             "notification_url": "https://api.unicornio.tech/webhook",
         }
 
-        print(f"😪✔ Enviando datos a Mercado Pago: {preference_data}")
         preference_response = sdk.preference().create(preference_data)
+        print("✅ Preferencia de pago creada en Mercado Pago")
 
-        print("🔹 Respuesta de Mercado Pago:", preference_response)
-
-        # **Manejo de errores en la respuesta**
+        # 9. Verificar la respuesta de Mercado Pago
         if "response" in preference_response and "init_point" in preference_response["response"]:
+            print("✅ Preferencia creada exitosamente:", preference_response["response"]["init_point"])
             return {"init_point": preference_response["response"]["init_point"]}
         else:
-            print("❌ Error en la respuesta de Mercado Pago:", preference_response)
-            raise HTTPException(status_code=500, detail="Error al crear la preferencia en Mercado Pago. Verifica los datos enviados.")
+            print("❌ Error al crear la preferencia en Mercado Pago")
+            raise HTTPException(status_code=500, detail="Error al crear la preferencia en Mercado Pago")
 
     except Exception as e:
-        print("❌ Error al crear la preferencia:", str(e))
+        print("❌ Error:", str(e))
         raise HTTPException(status_code=422, detail=str(e))
-
+ 
 # ENDPOINT PARA TRAER TODOS LOS PAGOS HECHOS POR MEDIO DE MERCADO PAGO
 @app.get("/payments")
 async def get_all_payments(negocio_id: str, begin_date: str, end_date: str, limit: int = 50, offset: int = 0):
@@ -443,78 +479,55 @@ async def get_all_payments(negocio_id: str, begin_date: str, end_date: str, limi
 
 # ENDPOINT PARA TRAER LOS PEDIDOS DE LOS CLIENTES POR EMBAJADOR
 @app.get("/orders-by-ambassador", response_model=List[Order])
-async def get_orders_by_ambassador(current_user: str = Depends(get_current_user)):
-    # Busca el embajador usando el correo actual
-    ambassador = await collection.find_one({"email": current_user})
+async def get_orders_by_ambassador(current_user: dict = Depends(get_current_user)):
+    email = current_user.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Usuario no autenticado")
     
+    ambassador = await collection.find_one({"email": email})
     if not ambassador:
         raise HTTPException(status_code=404, detail="Embajador no encontrado")
     
-    # Recupera los pedidos donde el campo 'ref' coincide con el correo del embajador
-    orders_cursor = collection_pedidos.find({"ref": current_user})
+    orders_cursor = collection_pedidos.find({"ref": email})
     orders = await orders_cursor.to_list(length=100)
     
     if not orders:
         raise HTTPException(status_code=404, detail="No se encontraron pedidos para este embajador")
-
+    
     order_list = []
     for order in orders:
         order_id = order.get('_id')
         transaction = await collection_transaction.find_one({"external_reference": str(order_id)})
-
-        if transaction:
-            status = transaction.get('status')
-            date_created = transaction.get('date_created')
-            transaction_id = str(transaction.get('id'))
-        else:
-            status = None
-            date_created = None
-            transaction_id = None
-
-        updated_order = {
-            **order,
-            "status": status,
-            "date_created": date_created,
-            "transaction_id": transaction_id
-        }
+        
+        status = transaction.get('status') if transaction else None
+        date_created = transaction.get('date_created') if transaction else None
+        transaction_id = str(transaction.get('id')) if transaction else None
+        
+        updated_order = {**order, "status": status, "date_created": date_created, "transaction_id": transaction_id}
         await collection_pedidos.update_one({"_id": order_id}, {"$set": updated_order})
-
-        # Validar si ya existe un cliente con el mismo correo o teléfono
+        
         existing_client = await collection_client.find_one(
-            {
-                "$or": [
-                    {"correo_electronico": order.get('correo_electronico')},
-                    {"telefono": order.get('telefono')}
-                ]
-            }
+            {"$or": [
+                {"correo_electronico": order.get('correo_electronico')},
+                {"telefono": order.get('telefono')}
+            ]}
         )
-
-        # Combinar nombre y apellidos para el campo `nombre`
+        
         full_name = " ".join(filter(None, [order.get('nombre', '').strip(), order.get('apellidos', '').strip()]))
-
         cliente_data = {
-            "nombre": full_name,  # Aquí se guarda el nombre completo
+            "nombre": full_name,
             "correo_electronico": order.get('correo_electronico'),
             "telefono": order.get('telefono'),
             "ref": order.get('ref')
         }
-
+        
         if existing_client:
-            # Verifica si algún dato es diferente antes de actualizar
-            differences = {
-                key: value for key, value in cliente_data.items()
-                if existing_client.get(key) != value
-            }
+            differences = {key: value for key, value in cliente_data.items() if existing_client.get(key) != value}
             if differences:
-                await collection_client.update_one(
-                    {"_id": existing_client["_id"]},
-                    {"$set": differences}
-                )
+                await collection_client.update_one({"_id": existing_client["_id"]}, {"$set": differences})
         else:
-            # Si no existe, inserta un nuevo cliente
             await collection_client.insert_one(cliente_data)
-
-        # Construir la lista de pedidos
+        
         order_list.append(Order(
             cedula=order.get('cedula'),
             nombre=order.get('nombre'),
@@ -533,7 +546,7 @@ async def get_orders_by_ambassador(current_user: str = Depends(get_current_user)
             date_created=date_created,
             transaction_id=transaction_id
         ))
-
+    
     return order_list
 
 # ENDPOINT PARA RECIBIR LAS RESPUESTAS DE LOS PEDIDOS QUE HAN REALIZADO POR MERCADO PAGO
@@ -672,25 +685,90 @@ async def calcular_comision(current_user: str = Depends(get_current_user)):
 
 # ENDPOINT PARA OBTENER EL TOTAL DE CLIENTES Y DE VENTAS POR EMBAJADOR
 @app.get("/dashboard/metrics")
-async def get_dashboard_metrics(current_user: str = Depends(get_current_user)):
-    # Obtener el correo electrónico del embajador que inició sesión
-    embajador_email = current_user
+async def get_dashboard_metrics(current_user: dict = Depends(get_current_user)):
+    try:
+        email = current_user.get("email")
+        rol = current_user.get("rol")
 
-    # Total de clientes asociados con el embajador independientemente de si tienen un pedido o no
-    total_clientes = await collection_client.count_documents({"ref": embajador_email})
+        if not email or not rol:
+            raise HTTPException(status_code=401, detail="Usuario no autenticado")
+        
+        print(f"📧 Usuario autenticado: {email} - Rol: {rol}")
 
-    # Ventas totales de pedidos asociados con el embajador y que tienen el status "approved"
-    ventas_totales_cursor = collection_pedidos.aggregate([
-        {"$match": {"ref": embajador_email, "status": "approved"}},
-        {"$group": {"_id": None, "total": {"$sum": "$total"}}}
-    ])
-    ventas_totales_result = await ventas_totales_cursor.to_list(length=1)
-    ventas_totales = ventas_totales_result[0]["total"] if ventas_totales_result else 0
+        total_clientes = 0
+        ventas_totales = 0
 
-    return {
-        "total_clientes": total_clientes,
-        "ventas_totales_approved": ventas_totales
-    }
+        if rol == "Embajador":
+            # Total de clientes directos del embajador
+            total_clientes = await collection_client.count_documents({"ref": email})
+            print(f"📊 Total de clientes del embajador: {total_clientes}")
+
+            # Ventas totales de pedidos aprobados del embajador
+            ventas_totales_cursor = collection_pedidos.aggregate([
+                {"$match": {"ref": email, "status": "approved"}},
+                {"$group": {"_id": None, "total": {"$sum": "$total"}}}
+            ])
+            ventas_totales_result = await ventas_totales_cursor.to_list(length=1)
+            ventas_totales = ventas_totales_result[0]["total"] if ventas_totales_result else 0
+            print(f"📊 Ventas totales aprobadas del embajador: {ventas_totales}")
+
+        elif rol == "Distribuidor":
+            # Buscar embajadores asociados al distribuidor
+            distribuidor = await collection_distribuidor.find_one({"correo_electronico": email})
+            if distribuidor:
+                distribuidor_id = distribuidor["_id"]  # Se mantiene como ObjectId
+
+                embajadores_cursor = collection.find({"distribuidor_id": distribuidor_id})  # Cambio aquí
+                embajadores = await embajadores_cursor.to_list(length=None)
+                
+                embajador_emails = [emb["email"] for emb in embajadores]
+                print(f"📊 Embajadores asociados al distribuidor: {embajador_emails}")
+
+                # Total de clientes de los embajadores del distribuidor
+                total_clientes = await collection_client.count_documents({"ref": {"$in": embajador_emails}})
+                print(f"📊 Total de clientes de los embajadores del distribuidor: {total_clientes}")
+
+                # Ventas totales de pedidos aprobados de los embajadores
+                ventas_totales_cursor = collection_pedidos.aggregate([
+                    {"$match": {"ref": {"$in": embajador_emails}, "status": "approved"}},
+                    {"$group": {"_id": None, "total": {"$sum": "$total"}}}
+                ])
+                ventas_totales_result = await ventas_totales_cursor.to_list(length=1)
+                ventas_totales = ventas_totales_result[0]["total"] if ventas_totales_result else 0
+                print(f"📊 Ventas totales aprobadas de los embajadores del distribuidor: {ventas_totales}")
+
+        elif rol == "Negocio":
+            # Buscar embajadores asociados directamente al negocio
+            negocio = await collection_bussiness.find_one({"correo_electronico": email})
+            if negocio:
+                embajadores_cursor = collection.find({"negocio_id": str(negocio["_id"])})
+
+                embajadores = await embajadores_cursor.to_list(length=None)
+
+                embajador_emails = [emb["email"] for emb in embajadores]
+                print(f"📊 Embajadores asociados al negocio: {embajador_emails}")
+
+                # Total de clientes de los embajadores del negocio
+                total_clientes = await collection_client.count_documents({"ref": {"$in": embajador_emails}})
+                print(f"📊 Total de clientes de los embajadores del negocio: {total_clientes}")
+
+                # Ventas totales de pedidos aprobados de los embajadores del negocio
+                ventas_totales_cursor = collection_pedidos.aggregate([
+                    {"$match": {"ref": {"$in": embajador_emails}, "status": "approved"}},
+                    {"$group": {"_id": None, "total": {"$sum": "$total"}}}
+                ])
+                ventas_totales_result = await ventas_totales_cursor.to_list(length=1)
+                ventas_totales = ventas_totales_result[0]["total"] if ventas_totales_result else 0
+                print(f"📊 Ventas totales aprobadas de los embajadores del negocio: {ventas_totales}")
+
+        return {
+            "total_clientes": total_clientes,
+            "ventas_totales_approved": ventas_totales
+        }
+
+    except Exception as e:
+        print(f"❌ Error en el endpoint /dashboard/metrics: {e}")
+        raise HTTPException(status_code=500, detail="Error al obtener las métricas del dashboard")
 
 # ENDPOINT PARA OBTENER LA COMISION DE LA CARTERA POR EMBAJADOR
 @app.get("/wallet/comision-actualizada", summary="Obtener la comisión de la cartera")
@@ -795,61 +873,46 @@ async def get_orders_by_client(client_email: str, current_user: str = Depends(ge
         )
 
 
-# ENDPINT PARA OBTENER LOS PEDIDOS APROBADOS POR EMBAJADOR PARA LA WALLET
+# ENDPOINT PARA OBTENER LOS PEDIDOS APROBADOS POR EMBAJADOR PARA LA WALLET
 @app.get("/approved-orders", response_model=List[ApprovedOrderResponse])
-async def get_approved_orders(current_user: str = Depends(get_current_user)):
-    """
-    Endpoint protegido para obtener los pedidos con estado "approved" asociados al embajador autenticado.
-    Solo se muestran los pedidos con estado "approved" y los campos: status, fecha, id_transaccion y total.
-    """
-    try:
-        # Busca el embajador usando el correo actual
-        ambassador = await collection.find_one({"email": current_user})
-        if not ambassador:
-            raise HTTPException(status_code=404, detail="Embajador no encontrado")
-
-        # Recupera los pedidos donde el campo 'ref' coincide con el correo del embajador
-        orders_cursor = collection_pedidos.find({"ref": current_user, "status": "approved"})
-        orders = await orders_cursor.to_list(length=100)
-
-        if not orders:
-            raise HTTPException(status_code=404, detail="No se encontraron pedidos aprobados para este embajador")
-
-        approved_orders = []
-        for order in orders:
-            # Obtener la fecha del pedido
-            fecha = order.get("date_created")
-
-            # Verificar si la fecha existe y es un objeto datetime
-            if fecha and isinstance(fecha, datetime):
-                fecha_formateada = fecha.strftime("%d/%m/%Y, %I:%M:%S %p")
-            else:
-                # Si no es un datetime, intentar convertirla desde un string o asignar "No disponible"
-                if isinstance(fecha, str):
-                    try:
-                        # Intentar convertir la cadena a datetime
-                        fecha_dt = datetime.fromisoformat(fecha)  # Ajusta el formato según corresponda
-                        fecha_formateada = fecha_dt.strftime("%d/%m/%Y, %I:%M:%S %p")
-                    except ValueError:
-                        fecha_formateada = "No disponible"
-                else:
-                    fecha_formateada = "No disponible"
-
-            # Agregar el pedido aprobado a la lista
-            approved_orders.append({
-                "status": order.get("status", "approved"),
-                "fecha": fecha_formateada,
-                "id_transaccion": order.get("transaction_id", "No disponible"),
-                "total": order.get("total", 0.0)
-            })
-
-        return approved_orders
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al obtener los pedidos aprobados: {str(e)}"
-        )
+async def get_approved_orders(current_user: dict = Depends(get_current_user)):
+    email = current_user.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Usuario no autenticado")
+    
+    ambassador = await collection.find_one({"email": email})
+    if not ambassador:
+        raise HTTPException(status_code=404, detail="Embajador no encontrado")
+    
+    orders_cursor = collection_pedidos.find({"ref": email, "status": "approved"})
+    orders = await orders_cursor.to_list(length=100)
+    
+    if not orders:
+        raise HTTPException(status_code=404, detail="No se encontraron pedidos aprobados para este embajador")
+    
+    approved_orders = []
+    for order in orders:
+        fecha = order.get("date_created")
+        
+        if isinstance(fecha, datetime):
+            fecha_formateada = fecha.strftime("%d/%m/%Y, %I:%M:%S %p")
+        elif isinstance(fecha, str):
+            try:
+                fecha_dt = datetime.fromisoformat(fecha)
+                fecha_formateada = fecha_dt.strftime("%d/%m/%Y, %I:%M:%S %p")
+            except ValueError:
+                fecha_formateada = "No disponible"
+        else:
+            fecha_formateada = "No disponible"
+        
+        approved_orders.append({
+            "status": order.get("status", "approved"),
+            "fecha": fecha_formateada,
+            "id_transaccion": order.get("transaction_id", "No disponible"),
+            "total": order.get("total", 0.0)
+        })
+    
+    return approved_orders
 
 # Endpoint para registrar un negocio
 @app.post("/negocios/registro", status_code=status.HTTP_201_CREATED)
@@ -1306,7 +1369,6 @@ async def get_embajadores_por_distribuidor(
 
     return embajadores
 
-
 # ENDPOINT PARA PARA MOSTRAR LOS EMBAJADORES POR DISTRIBUIDOR
 @app.get("/embajadores", response_model=list)
 async def obtener_embajadores(
@@ -1406,7 +1468,140 @@ async def obtener_clientes(current_user: dict = Depends(get_current_user)):
         print(f"❌ Error: {e}")  # Depuración
         raise HTTPException(status_code=500, detail=str(e))
 
+# ENDPOINT PARA OBTENER PEDIDOS POR NEGOCIO Y DISTRIBUIDOR
+@app.get("/pedidos", status_code=status.HTTP_200_OK)
+async def obtener_pedidos(current_user: dict = Depends(get_current_user)):
+    """
+    Obtiene los pedidos asociados a un negocio o distribuidor.
+    """
+    # Validar que el usuario sea un Negocio o un Distribuidor
+    if current_user["rol"] not in ["Negocio", "Distribuidor"]:
+        raise HTTPException(status_code=403, detail="No autorizado para ver pedidos")
+
+    print("📢 Email autenticado:", current_user["email"])
+    print("📢 Rol autenticado:", current_user["rol"])
+
+    # Buscar el usuario en la base de datos con `correo_electronico`
+    if current_user["rol"] == "Negocio":
+        user = await collection_bussiness.find_one({"correo_electronico": current_user["email"]})
+    else:  # Si es distribuidor
+        user = await collection_distribuidor.find_one({"correo_electronico": current_user["email"]})
+
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado en la base de datos")
+
+    usuario_id = str(user["_id"])  # Convertir a string
+    print("📢 Usuario encontrado en la base de datos:", usuario_id)
+
+    # 🔥 Ajustar la consulta de embajadores para que funcione con ObjectId
+    try:
+        embajadores_cursor = collection.find(
+            {"$or": [
+                {"negocio_id": usuario_id}, 
+                {"distribuidor_id": ObjectId(usuario_id)}  # <- Asegurar que se compara correctamente
+            ]}
+        )
+        embajadores = await embajadores_cursor.to_list(None)
+    except Exception as e:
+        print("🚨 Error obteniendo embajadores:", str(e))
+        embajadores = []
+
+    # Extraer los correos (ref) de los embajadores asociados
+    embajador_refs = [emb["email"] for emb in embajadores]
+    print("📢 Embajadores asociados:", embajador_refs)
+
+    # Si no hay embajadores, retornar una lista vacía
+    if not embajador_refs:
+        print("📢 No hay embajadores asociados.")
+        return []
+
+    # Buscar pedidos que tengan un ref que coincida con los embajadores asociados
+    pedidos_cursor = collection_pedidos.find({"ref": {"$in": embajador_refs}})
+    pedidos = await pedidos_cursor.to_list(None)
+
+    # Convertir `_id` y `transaction_id` a string
+    for pedido in pedidos:
+        pedido["_id"] = str(pedido["_id"])
+        if "transaction_id" in pedido:
+            pedido["transaction_id"] = str(pedido["transaction_id"])
+
+    print("📢 Total de pedidos encontrados:", len(pedidos))
+    return pedidos
+
+# ENDPOINT PARA OBTENER LOS CLIENTES DE LA RED DEL NEGOCIO
+@app.get("/clients-orders")
+async def get_clients_orders():
+    """
+    Obtiene la lista de clientes con sus datos y sus pedidos.
+    """
+    clients_cursor = collection_client.find({}, {
+        "_id": 1,
+        "nombre": 1,
+        "correo_electronico": 1,
+        "telefono": 1,
+        "ref": 1
+    })
     
+    clients = await clients_cursor.to_list(length=None)
+
+    formatted_clients = []
+    
+    for client in clients:
+        client_email = client.get("correo_electronico", "")
+
+        # Contar pedidos y calcular total gastado
+        total_orders = await collection_pedidos.count_documents({"correo_electronico": client_email})
+        total_spent_pipeline = [
+            {"$match": {"correo_electronico": client_email}},
+            {"$group": {"_id": None, "total": {"$sum": "$total"}}}
+        ]
+        total_spent_result = await collection_pedidos.aggregate(total_spent_pipeline).to_list(length=1)
+        total_spent = total_spent_result[0]["total"] if total_spent_result else 0
+
+        formatted_clients.append({
+            "id": str(client["_id"]),
+            "nombre": client.get("nombre", "Desconocido"),
+            "correo_electronico": client_email,
+            "telefono": client.get("telefono", "Sin número"),
+            "ref": client.get("ref", "No asignado"),
+            "total_orders": total_orders,
+            "total_spent": total_spent
+        })
+
+    return {"clients": formatted_clients}
+
+# ENDPOINT PARA OBTENER LOS PEDIDOS CON EL ENDPOINT ANTERIOR O CLIENTS 
+@app.get("/orders/{email}", response_model=dict)
+async def get_orders(email: str):
+    """
+    Obtiene los pedidos de un cliente específico usando su correo electrónico.
+    """
+    try:
+        orders_cursor = collection_pedidos.find(
+            {"correo_electronico": email}, 
+            {"_id": 1, "productos": 1, "total": 1, "status": 1, "date_created": 1, "transaction_id": 1}
+        )
+        orders = await orders_cursor.to_list(length=None)
+
+        if not orders:
+            raise HTTPException(status_code=404, detail="No se encontraron pedidos para este cliente.")
+
+        formatted_orders = [
+            {
+                "id": str(order["_id"]),  # Convertir ObjectId a string
+                "products": order.get("productos", []),
+                "total": order.get("total", 0),
+                "status": order.get("status", "pending"),  # Valor por defecto si es null
+                "date": order.get("date_created") or "Fecha no disponible",  # Manejar null
+                "transaction_id": order.get("transaction_id", "N/A"),  # Manejar null
+            }
+            for order in orders
+        ]
+
+        return {"orders": formatted_orders}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener pedidos: {str(e)}")
     
     
     

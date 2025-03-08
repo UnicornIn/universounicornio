@@ -89,7 +89,7 @@ export default function CheckoutEnvio() {
     };
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/create-preference", {
+      const response = await fetch("https://api.unicornio.tech/create-preference", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

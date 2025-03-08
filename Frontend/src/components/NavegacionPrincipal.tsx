@@ -19,8 +19,10 @@ const NavegacionPrincipal: React.FC<NavegacionPrincipalProps> = ({ onLogout }) =
     localStorage.removeItem('nombre');
     localStorage.removeItem('negocio');
     localStorage.removeItem('profileData');
+    localStorage.removeItem('orders'); // Eliminar pedidos almacenados
     onLogout();
-  };
+};
+
 
   // Filtrar los elementos de navegación según el rol del usuario
   const navItems = [

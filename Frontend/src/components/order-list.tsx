@@ -10,6 +10,7 @@ export function OrderList() {
   const [notifications, setNotifications] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [, setRole] = useState<string | null>(null);
 
   const clearNotifications = () => {
     setNotifications(0);
@@ -18,38 +19,35 @@ export function OrderList() {
   useEffect(() => {
     const fetchOrders = async () => {
       const token = localStorage.getItem("access_token");
-      if (!token) {
-        console.error("No token found");
+      const storedRole = localStorage.getItem("rol"); // Asegurar que el rol se lea correctamente
+      
+      if (!token || !storedRole) {
+        console.error("No token or role found");
         setLoading(false);
         return;
       }
 
+      setRole(storedRole); // Guardamos el rol en el estado
+
+      // Definir el endpoint basado en el rol
+      const endpoint =
+        storedRole === "Negocio" || storedRole === "Distribuidor"
+          ? "https://api.unicornio.tech/pedidos"
+          : "https://api.unicornio.tech/orders-by-ambassador";
+
       try {
-        const response = await fetch(
-          "https://api.unicornio.tech/orders-by-ambassador",
-          {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: "application/json",
-            },
-          }
-        );
+        const response = await fetch(endpoint, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+          },
+        });
 
         if (response.ok) {
           const data = await response.json();
-          const newOrders = data.filter(
-            (order: any) =>
-              !orders.some(
-                (existingOrder) =>
-                  existingOrder.transaction_id === order.transaction_id
-              )
-          );
-
-          if (newOrders.length > 0) {
-            setNotifications((prev) => prev + newOrders.length);
-          }
           setOrders(data);
+          localStorage.setItem("orders", JSON.stringify(data));
         } else {
           console.error("Error al obtener los pedidos");
         }

@@ -62,7 +62,7 @@ export function EditAmbassadorModal({ isOpen, onClose, ambassador, onUpdate }: E
   // Enviar los cambios al backend
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
-      const response = await fetch(`http://127.0.0.1:8000/embajadores/${ambassador._id}`, {
+      const response = await fetch(`https://api.unicornio.tech/embajadores/${ambassador._id}`, {
         method: "PUT",
         headers: {
           Authorization: `Bearer ${localStorage.getItem("access_token")}`,

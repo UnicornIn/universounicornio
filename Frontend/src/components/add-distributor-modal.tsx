@@ -56,7 +56,7 @@ export function AddDistributorModal({ isOpen, onClose }: AddDistributorModalProp
 
       console.log("Payload enviado:", payload);
 
-      const response = await fetch("http://127.0.0.1:8000/distribuidores/", {
+      const response = await fetch("https://api.unicornio.tech/distribuidores/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

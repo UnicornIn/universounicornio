@@ -1,14 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { Badge } from "./ui/badge"
 import { Button } from "./ui/button"
 import { Eye } from "lucide-react"
 import { DetailedCustomerModal } from "./detailed-customer-modal"
 
+// Definición de la interfaz para los clientes
 interface Customer {
-  id: number
+  id: string
   name: string
   email: string
   phone: string
@@ -17,47 +18,68 @@ interface Customer {
   totalSpent: number
 }
 
-const customers: Customer[] = [
-  {
-    id: 1,
-    name: "María García",
-    email: "maria@example.com",
-    phone: "+52 555 123 4567",
-    ambassadorEmail: "ana@example.com",
-    totalOrders: 5,
-    totalSpent: 250.5,
-  },
-  {
-    id: 2,
-    name: "Juan Pérez",
-    email: "juan@example.com",
-    phone: "+52 555 987 6543",
-    ambassadorEmail: "carlos@example.com",
-    totalOrders: 3,
-    totalSpent: 150.75,
-  },
-  {
-    id: 3,
-    name: "Laura Rodríguez",
-    email: "laura@example.com",
-    phone: "+52 555 456 7890",
-    ambassadorEmail: "ana@example.com",
-    totalOrders: 7,
-    totalSpent: 375.25,
-  },
-]
-
-interface DetailedCustomerListProps {
+interface CustomerListProps {
   searchTerm: string
 }
 
-export function CustomerList({ searchTerm }: DetailedCustomerListProps) {
+export function CustomerList({ searchTerm }: CustomerListProps) {
+  const [customers, setCustomers] = useState<Customer[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
 
+  // Obtener el access_token de localStorage o sessionStorage
+  const getAccessToken = () => {
+    return localStorage.getItem("access_token") || sessionStorage.getItem("access_token") || ""
+  }
+
+  useEffect(() => {
+    const fetchCustomers = async () => {
+      const accessToken = getAccessToken()
+      if (!accessToken) {
+        console.error("❌ No se encontró el access_token")
+        return
+      }
+  
+      try {
+        const response = await fetch("https://api.unicornio.tech/clients-orders", {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+        })
+  
+        if (!response.ok) {
+          throw new Error(`❌ Error ${response.status}: No se pudieron obtener los clientes`)
+        }
+  
+        const data = await response.json()
+        console.log("📢 Respuesta de la API:", data)
+
+        const formattedCustomers: Customer[] = data.clients.map((client: any) => ({
+          id: client.id,  // ✅ Corregido: `client.id` en lugar de `client._id`
+          name: client.nombre || "Desconocido",
+          email: client.correo_electronico || "Sin correo",
+          phone: client.telefono || "Sin número",
+          ambassadorEmail: client.ref || "No asignado",
+          totalOrders: client.total_orders ?? 0,
+          totalSpent: client.total_spent ?? 0,
+        }))
+        
+        console.log("📢 Clientes procesados:", formattedCustomers)
+        setCustomers(formattedCustomers)
+      } catch (error) {
+        console.error("❌ Error al cargar clientes:", error)
+      }
+    }
+  
+    fetchCustomers()
+  }, [])
+
+  // Filtrar clientes según el término de búsqueda
   const filteredCustomers = customers.filter(
     (customer) =>
       customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      customer.email.toLowerCase().includes(searchTerm.toLowerCase()),
+      customer.email.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   return (
@@ -85,6 +107,8 @@ export function CustomerList({ searchTerm }: DetailedCustomerListProps) {
           </CardContent>
         </Card>
       ))}
+      
+      {/* Modal de detalles del cliente */}
       {selectedCustomer && (
         <DetailedCustomerModal
           customer={selectedCustomer}
@@ -95,4 +119,3 @@ export function CustomerList({ searchTerm }: DetailedCustomerListProps) {
     </div>
   )
 }
-

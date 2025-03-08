@@ -27,7 +27,7 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
       formData.append('username', lowerCaseEmail);  // Usar el email en minúsculas
       formData.append('password', password);
   
-      const response = await fetch('http://127.0.0.1:8000/token', {
+      const response = await fetch('https://api.unicornio.tech/token', {
         method: 'POST',
         body: formData,
       });

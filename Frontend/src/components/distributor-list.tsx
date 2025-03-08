@@ -25,7 +25,7 @@ export function DistributorList() {
     }
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/distribuidores/negocio/", {
+      const response = await fetch("https://api.unicornio.tech/distribuidores/negocio/", {
         headers: { Authorization: `Bearer ${token}` },
       })
 
@@ -59,7 +59,7 @@ export function DistributorList() {
     const token = localStorage.getItem("access_token") // Corregido el nombre del token
 
     try {
-      const response = await fetch(`http://127.0.0.1:8000/distribuidores/${id}`, {
+      const response = await fetch(`https://api.unicornio.tech/distribuidores/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -76,7 +76,7 @@ export function DistributorList() {
     const token = localStorage.getItem("access_token") // Corregido el nombre del token
 
     try {
-      const response = await fetch(`http://127.0.0.1:8000/distribuidores/${updatedDistributor.id}`, {
+      const response = await fetch(`https://api.unicornio.tech/distribuidores/${updatedDistributor.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

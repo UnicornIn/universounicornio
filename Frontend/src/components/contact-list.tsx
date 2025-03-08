@@ -30,6 +30,14 @@ export function ContactList() {
   const token = localStorage.getItem("access_token");
 
   useEffect(() => {
+    const storedContacts = localStorage.getItem("clients");
+
+    if (storedContacts) {
+      setContacts(JSON.parse(storedContacts));
+      console.log("📂 Clientes cargados desde localStorage");
+      return;
+    }
+
     const fetchContacts = async () => {
       if (!token) {
         console.error("No se encontró el token de acceso");
@@ -54,7 +62,10 @@ export function ContactList() {
             whatsapp: contact.whatsapp || contact.whatsapp_phone,
             purchaseHistory: contact.purchaseHistory || [],
           }));
+
           setContacts(transformedContacts);
+          localStorage.setItem("clients", JSON.stringify(transformedContacts)); // Guardar en localStorage
+          console.log("✅ Clientes guardados en localStorage");
         } else {
           console.error("Error al obtener los contactos");
         }

@@ -1,5 +1,3 @@
-"use client"
-
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { Button } from "./ui/button"
@@ -9,7 +7,7 @@ import { EditAmbassadorModal } from "./edit-ambassador-modal"
 import { AmbassadorDetailsModal } from "./ambassador-details-modal"
 
 interface Ambassador {
-  _id: string
+  _id: string // Cambié de `number` a `string` aquí también
   full_name: string
   email: string
   whatsapp_number: string
@@ -29,7 +27,7 @@ export function AmbassadorList() {
   useEffect(() => {
     const fetchAmbassadors = async () => {
       try {
-        const response = await fetch("http://127.0.0.1:8000/embajadores", {
+        const response = await fetch("https://api.unicornio.tech/embajadores", {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("access_token")}`,
             "Content-Type": "application/json",
@@ -54,10 +52,10 @@ export function AmbassadorList() {
   const handleDelete = async (id: string) => {
     if (confirm("¿Estás seguro de que deseas eliminar este embajador?")) {
       try {
-        const response = await fetch(`http://127.0.0.1:8000/embajadores/${id}`, {
+        const response = await fetch(`https://api.unicornio.tech/embajadores/${id}`, {
           method: "DELETE",
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("asset_token")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
           },
         })
         if (!response.ok) {
@@ -149,7 +147,15 @@ export function AmbassadorList() {
           <AmbassadorDetailsModal
             isOpen={isDetailsModalOpen}
             onClose={() => setIsDetailsModalOpen(false)}
-            ambassador={selectedAmbassador}
+            ambassador={{
+              id: selectedAmbassador._id, // Aseguramos que se pase el `_id` como string
+              name: selectedAmbassador.full_name,
+              phone: selectedAmbassador.whatsapp_number,
+              distributor: selectedAmbassador.distribuidor_id,
+              salesCount: 0, // Ajusta este valor si tienes los datos correctos
+              email: selectedAmbassador.email, // Aseguramos que también se pase el email
+              status: selectedAmbassador.status, // Aseguramos que también se pase el status
+            }}
           />
         </>
       )}
